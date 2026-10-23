@@ -2,7 +2,7 @@
 
 const { MessageFlags } = require("discord.js");
 const { authorizeInteraction, denyEphemeral } = require("../security/authorization");
-const { parseCustomId, selectionButtons, confirmationButtons, leaveConfirmButtons } = require("../components/buttons");
+const { parseCustomId, selectionButtons, confirmationButtons, leaveConfirmButtons, botInviteUrl } = require("../components/buttons");
 const targetGuild = require("./targetGuild");
 const { selectionMenu, pageSlice } = require("../components/menus");
 const { truncateField } = require("../utils/embeds");
@@ -41,6 +41,15 @@ async function handleButton(interaction, context) {
 
   if (parsed.action === "banall") {
     await startBanAll(interaction, context);
+    return;
+  }
+
+  if (parsed.action === "invite") {
+    const url = botInviteUrl(context.client);
+    await interaction.reply({
+      content: `Copy this invite and open it to add Nexus to a server:\n\`\`\`\n${url}\n\`\`\``,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 

@@ -13,23 +13,18 @@ function botInviteUrl(client) {
   return `https://discord.com/oauth2/authorize?${params.toString()}`;
 }
 
-function panelButtons({ banAllDisabled = false, leaveDisabled = true, inviteUrl } = {}) {
+function panelButtons({ banAllDisabled = false, leaveDisabled = true } = {}) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(CUSTOM_IDS.banAll)
       .setLabel("Ban All")
       .setStyle(ButtonStyle.Danger)
-      .setDisabled(banAllDisabled)
+      .setDisabled(banAllDisabled),
+    new ButtonBuilder()
+      .setCustomId(CUSTOM_IDS.invite)
+      .setLabel("Invite")
+      .setStyle(ButtonStyle.Secondary)
   );
-
-  if (inviteUrl) {
-    row.addComponents(
-      new ButtonBuilder()
-        .setLabel("Invite")
-        .setStyle(ButtonStyle.Link)
-        .setURL(inviteUrl)
-    );
-  }
 
   row.addComponents(
     new ButtonBuilder()
@@ -111,6 +106,9 @@ function disabledRow(label = "Operation closed") {
 function parseCustomId(customId) {
   if (customId === CUSTOM_IDS.banAll) {
     return { action: "banall", opId: null };
+  }
+  if (customId === CUSTOM_IDS.invite) {
+    return { action: "invite", opId: null };
   }
   if (customId === CUSTOM_IDS.close) {
     return { action: "close", opId: null };

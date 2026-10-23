@@ -1,7 +1,7 @@
 "use strict";
 
 const { panelEmbed } = require("../utils/embeds");
-const { panelButtons, botInviteUrl } = require("../components/buttons");
+const { panelButtons } = require("../components/buttons");
 const database = require("../storage/database");
 const guildService = require("./guildService");
 const logger = require("../utils/logger");
@@ -28,7 +28,6 @@ async function buildPayload(context, { mode = "idle", operation = null, extraFie
       panelButtons({
         banAllDisabled: mode === "running",
         leaveDisabled: !view.connected,
-        inviteUrl: botInviteUrl(context.client),
       }),
     ],
   };

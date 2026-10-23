@@ -16,6 +16,7 @@ const BRAND = {
 
 const CUSTOM_IDS = {
   banAll: "nx:banall",
+  invite: "nx:invite",
   close: "nx:close",
   leave: "nx:leave",
   leaveYes: "nx:leaveyes",
