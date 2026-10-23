@@ -2,9 +2,8 @@
 
 const { MessageFlags } = require("discord.js");
 const { authorizeInteraction, denyEphemeral } = require("../security/authorization");
-const { parseCustomId, selectionButtons, confirmationButtons, leaveConfirmButtons, botInviteUrl } = require("../components/buttons");
+const { parseCustomId, confirmationButtons, leaveConfirmButtons, botInviteUrl } = require("../components/buttons");
 const targetGuild = require("./targetGuild");
-const { selectionMenu, pageSlice } = require("../components/menus");
 const { truncateField } = require("../utils/embeds");
 const operationManager = require("./operationManager");
 const guildService = require("./guildService");
@@ -98,62 +97,13 @@ async function handleButton(interaction, context) {
     return;
   }
 
-  if (parsed.action === "prev" || parsed.action === "next") {
-    await turnPage(interaction, context, operation, parsed.action);
-    return;
-  }
-
-  if (parsed.action === "selok") {
-    await askConfirmation(interaction, context, operation);
-    return;
-  }
-
   if (parsed.action === "exec") {
     await runExecution(interaction, context, operation);
   }
 }
 
-async function handleSelect(interaction, context) {
-  const parsed = parseCustomId(interaction.customId);
-  if (!parsed || parsed.action !== "msel") return;
-
-  const auth = authorizeInteraction(interaction, context.config);
-  if (!auth.ok) {
-    await denyEphemeral(interaction, auth.reason);
-    return;
-  }
-
-  if (!panelService.isPanelMessage(interaction)) {
-    await interaction.reply({
-      content: "This control is not the active Nexus panel.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  const operation = operationManager.get(parsed.opId);
-  if (!operation || operation.userId !== interaction.user.id || operation.status !== "selecting") {
-    await interaction.reply({
-      content: "This selection menu is no longer valid.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  const pageIds = new Set(pageSlice(operation).map((member) => member.id));
-  for (const id of pageIds) operation.selected.delete(id);
-  for (const id of interaction.values) {
-    if (pageIds.has(id)) operation.selected.add(id);
-  }
-
-  database.appendLog(`Selection updated: ${operation.selected.size} member(s)`);
-  await interaction.update(
-    await panelService.buildPayload(context, {
-      mode: "selecting",
-      operation,
-      components: [selectionMenu(operation), selectionButtons(operation)],
-    })
-  );
+async function handleSelect() {
+  // Member picking was removed; Ban All targets every eligible member.
 }
 
 async function closeFromButton(interaction, context) {
@@ -305,75 +255,35 @@ async function startBanAll(interaction, context) {
   );
   operationManager.rebindLock(pendingLockId, operation.id);
   operation.previewMessageId = interaction.message.id;
-  operationManager.setStatus(operation, "selecting");
-  database.appendLog("Member selection open. Nothing is pre-selected.");
+  operationManager.setStatus(operation, "confirming");
+  database.appendLog(`Queued ${operation.selected.size} eligible member(s). Confirmation required.`);
+
+  const exclusionLines = Object.entries(operation.exclusionCounts || {})
+    .filter(([, count]) => count > 0)
+    .map(([reason, count]) => `• ${reason}: **${count}**`)
+    .join("\n");
 
   await panelService.updatePanel(context, {
     message: interaction.message,
-    mode: "selecting",
+    mode: "confirming",
     operation,
-    components: [selectionMenu(operation), selectionButtons(operation)],
+    extraFields: [
+      {
+        name: "Confirm Ban All",
+        value: [
+          `This will ban **every eligible member** on **${operation.targetName}**.`,
+          `Eligible: **${operation.eligible.length}**`,
+          `Excluded: **${operation.excluded.length}** (owner, hierarchy, and accounts Discord will not let Nexus ban)`,
+          "Native Discord audit logs will record each ban.",
+        ].join("\n"),
+      },
+      {
+        name: "Exclusions",
+        value: truncateField(exclusionLines || "None"),
+      },
+    ],
+    components: [confirmationButtons(operation)],
   });
-}
-
-async function turnPage(interaction, context, operation, direction) {
-  if (operation.status !== "selecting") {
-    await interaction.reply({ content: "Paging is only available during selection.", flags: MessageFlags.Ephemeral });
-    return;
-  }
-
-  if (direction === "prev" && operation.page > 0) operation.page -= 1;
-  if (direction === "next" && operation.page < operation.totalPages - 1) operation.page += 1;
-  database.appendLog(`Selection page ${operation.page + 1}/${operation.totalPages}`);
-
-  await interaction.update(
-    await panelService.buildPayload(context, {
-      mode: "selecting",
-      operation,
-      components: [selectionMenu(operation), selectionButtons(operation)],
-    })
-  );
-}
-
-async function askConfirmation(interaction, context, operation) {
-  if (operation.status !== "selecting") {
-    await interaction.reply({ content: "Selection is no longer open.", flags: MessageFlags.Ephemeral });
-    return;
-  }
-
-  if (operation.selected.size === 0) {
-    await interaction.reply({
-      content: "Select at least one eligible member before confirming.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  operationManager.setStatus(operation, "confirming");
-  const selected = operation.eligible.filter((member) => operation.selected.has(member.id));
-  const previewLines = truncateField(
-    selected
-      .slice(0, 12)
-      .map((member) => `• ${member.tag} | ${member.id}`)
-      .join("\n") + (selected.length > 12 ? `\n…and ${selected.length - 12} more` : "")
-  );
-
-  database.appendLog(`Confirmation required for ${operation.selected.size} member(s)`);
-
-  await interaction.update(
-    await panelService.buildPayload(context, {
-      mode: "confirming",
-      operation,
-      extraFields: [
-        {
-          name: "Confirm Bulk Ban",
-          value: `Selected **${operation.selected.size}** of **${operation.eligible.length}** eligible.\nNative Discord audit logs will record each ban.`,
-        },
-        { name: "Selected Accounts", value: previewLines || "None" },
-      ],
-      components: [confirmationButtons(operation)],
-    })
-  );
 }
 
 async function cancelOperation(interaction, context, operation) {

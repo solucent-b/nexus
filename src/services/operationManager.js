@@ -47,7 +47,7 @@ function createOperation(userId, classification, targetName) {
     eligible: classification.eligible,
     excluded: classification.excluded,
     exclusionCounts: classification.exclusionCounts,
-    selected: new Set(),
+    selected: new Set(classification.eligible.map((member) => member.id)),
     page: 0,
     totalPages: Math.max(1, Math.ceil(classification.eligible.length / 25)),
     previewMessageId: null,
