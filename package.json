@@ -1,0 +1,23 @@
+{
+  "name": "nexus",
+  "version": "1.0.0",
+  "description": "Nexus — One Panel. Total Control. Private Discord remote administration.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "keywords": [
+    "nexus",
+    "discord",
+    "administration"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7"
+  }
+}
