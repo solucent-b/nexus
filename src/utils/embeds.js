@@ -68,7 +68,7 @@ function panelEmbed({
   if (mode === "idle") {
     embed.addFields({
       name: "Management",
-      value: "Use **Invite** to add Nexus to another server.\nUse **Ban All** for a protected bulk-moderation workflow.\n**Close** removes this panel so `/panel` can be used again.",
+      value: "Use **Invite** to add Nexus to another server.\nUse **Leave Server** to disconnect Nexus from the connected server.\nUse **Ban All** for a protected bulk-moderation workflow.\n**Close** removes this panel so `/panel` can be used again.",
     });
   }
 

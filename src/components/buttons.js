@@ -13,7 +13,7 @@ function botInviteUrl(client) {
   return `https://discord.com/oauth2/authorize?${params.toString()}`;
 }
 
-function panelButtons({ banAllDisabled = false, inviteUrl } = {}) {
+function panelButtons({ banAllDisabled = false, leaveDisabled = true, inviteUrl } = {}) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(CUSTOM_IDS.banAll)
@@ -33,6 +33,11 @@ function panelButtons({ banAllDisabled = false, inviteUrl } = {}) {
 
   row.addComponents(
     new ButtonBuilder()
+      .setCustomId(CUSTOM_IDS.leave)
+      .setLabel("Leave Server")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(leaveDisabled || banAllDisabled),
+    new ButtonBuilder()
       .setCustomId(CUSTOM_IDS.close)
       .setLabel("Close")
       .setStyle(ButtonStyle.Secondary)
@@ -40,6 +45,19 @@ function panelButtons({ banAllDisabled = false, inviteUrl } = {}) {
   );
 
   return row;
+}
+
+function leaveConfirmButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(CUSTOM_IDS.leaveYes)
+      .setLabel("Confirm Leave")
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(CUSTOM_IDS.leaveNo)
+      .setLabel("Cancel")
+      .setStyle(ButtonStyle.Secondary)
+  );
 }
 
 function selectionButtons(operation) {
@@ -97,6 +115,15 @@ function parseCustomId(customId) {
   if (customId === CUSTOM_IDS.close) {
     return { action: "close", opId: null };
   }
+  if (customId === CUSTOM_IDS.leave) {
+    return { action: "leave", opId: null };
+  }
+  if (customId === CUSTOM_IDS.leaveYes) {
+    return { action: "leaveyes", opId: null };
+  }
+  if (customId === CUSTOM_IDS.leaveNo) {
+    return { action: "leaveno", opId: null };
+  }
 
   const match = /^nx:([a-f0-9]{8}):(msel|prev|next|selok|cancel|exec|abort)$/.exec(customId);
   if (!match) return null;
@@ -106,6 +133,7 @@ function parseCustomId(customId) {
 module.exports = {
   botInviteUrl,
   panelButtons,
+  leaveConfirmButtons,
   selectionButtons,
   confirmationButtons,
   disabledRow,

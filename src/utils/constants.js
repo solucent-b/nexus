@@ -17,6 +17,9 @@ const BRAND = {
 const CUSTOM_IDS = {
   banAll: "nx:banall",
   close: "nx:close",
+  leave: "nx:leave",
+  leaveYes: "nx:leaveyes",
+  leaveNo: "nx:leaveno",
   select: (opId) => `nx:${opId}:msel`,
   pagePrev: (opId) => `nx:${opId}:prev`,
   pageNext: (opId) => `nx:${opId}:next`,

@@ -2,7 +2,8 @@
 
 const { MessageFlags } = require("discord.js");
 const { authorizeInteraction, denyEphemeral } = require("../security/authorization");
-const { parseCustomId, panelButtons, selectionButtons, confirmationButtons } = require("../components/buttons");
+const { parseCustomId, selectionButtons, confirmationButtons, leaveConfirmButtons } = require("../components/buttons");
+const targetGuild = require("./targetGuild");
 const { selectionMenu, pageSlice } = require("../components/menus");
 const { truncateField } = require("../utils/embeds");
 const operationManager = require("./operationManager");
@@ -40,6 +41,22 @@ async function handleButton(interaction, context) {
 
   if (parsed.action === "banall") {
     await startBanAll(interaction, context);
+    return;
+  }
+
+  if (parsed.action === "leave") {
+    await askLeave(interaction, context);
+    return;
+  }
+
+  if (parsed.action === "leaveno") {
+    database.appendLog("Leave cancelled.");
+    await interaction.update(await panelService.buildPayload(context, { mode: "idle" }));
+    return;
+  }
+
+  if (parsed.action === "leaveyes") {
+    await confirmLeave(interaction, context);
     return;
   }
 
@@ -141,6 +158,81 @@ async function closeFromButton(interaction, context) {
 
   await interaction.deferUpdate();
   await panelService.closePanel(context, interaction.user.id);
+}
+
+async function askLeave(interaction, context) {
+  if (operationManager.isLocked()) {
+    await interaction.reply({
+      content: "Finish or cancel the current operation before leaving the connected server.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const guild = await guildService.getTargetGuild(context.client, context.config);
+  if (!guild || guild.id === context.config.controlGuildId) {
+    await interaction.reply({
+      content: "Nexus is not connected to a target server.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  database.appendLog(`Leave requested for **${guild.name}**`);
+  await interaction.update(
+    await panelService.buildPayload(context, {
+      mode: "confirming",
+      extraFields: [
+        {
+          name: "Leave Connected Server",
+          value: `Nexus will leave **${guild.name}** (\`${guild.id}\`).\nThe control server is not affected. You can Invite again later.`,
+        },
+      ],
+      components: [leaveConfirmButtons()],
+    })
+  );
+}
+
+async function confirmLeave(interaction, context) {
+  if (operationManager.isLocked()) {
+    await interaction.reply({
+      content: "A moderation operation is running. Leave is blocked until it finishes.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const guild = await guildService.getTargetGuild(context.client, context.config);
+  if (!guild) {
+    database.appendLog("Leave failed: no connected target server.");
+    await panelService.updatePanel(context, { message: interaction.message, mode: "idle" });
+    return;
+  }
+
+  if (guild.id === context.config.controlGuildId) {
+    database.appendLog("Leave blocked: Nexus will not leave the control server.");
+    await panelService.updatePanel(context, { message: interaction.message, mode: "idle" });
+    return;
+  }
+
+  const name = guild.name;
+  const id = guild.id;
+
+  try {
+    await guild.leave();
+  } catch (error) {
+    logger.error("Failed to leave target guild", error);
+    database.appendLog(`Leave failed for **${name}**.`);
+    await panelService.updatePanel(context, { message: interaction.message, mode: "idle" });
+    return;
+  }
+
+  targetGuild.onGuildLeave(context.client, context.config, id);
+  database.setLastAction({ summary: `Left ${name}` });
+  database.appendLog(`Left **${name}**. Invite Nexus to connect another server.`);
+  await panelService.updatePanel(context, { message: interaction.message, mode: "idle" });
 }
 
 async function startBanAll(interaction, context) {

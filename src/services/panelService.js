@@ -27,6 +27,7 @@ async function buildPayload(context, { mode = "idle", operation = null, extraFie
     components: components || [
       panelButtons({
         banAllDisabled: mode === "running",
+        leaveDisabled: !view.connected,
         inviteUrl: botInviteUrl(context.client),
       }),
     ],
