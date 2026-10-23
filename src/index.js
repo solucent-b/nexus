@@ -18,7 +18,7 @@ const targetGuild = require("./services/targetGuild");
 const operationManager = require("./services/operationManager");
 const interactionRouter = require("./services/interactionRouter");
 const { startHealthServer } = require("./utils/healthServer");
-const { isOwner, isControlGuild, denyEphemeral } = require("./security/authorization");
+const { canOperate, denyEphemeral } = require("./security/authorization");
 
 let config;
 try {
@@ -86,8 +86,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const command = client.commands.get(interaction.commandName);
       if (!command) return;
 
-      if (!isControlGuild(interaction.guildId, config) || !isOwner(interaction.user.id, config)) {
-        await denyEphemeral(interaction, "Nexus commands are restricted to authorized operators in the control server.");
+      const auth = canOperate(interaction, config);
+      if (!auth.ok) {
+        await denyEphemeral(interaction, auth.reason);
         return;
       }
 

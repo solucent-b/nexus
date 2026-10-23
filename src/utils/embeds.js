@@ -11,14 +11,40 @@ function baseEmbed(color = COLORS.electricBlue) {
     .setTimestamp();
 }
 
-function panelEmbed({ targetGuild, memberCount, hasAdministrator, lastAction, systemStatus, connected }) {
+function formatLogs(logs) {
+  if (!logs?.length) return "No activity yet.";
+  const lines = logs.slice(-8).map((entry) => {
+    const clock = entry.at ? entry.at.slice(11, 19) : "--:--:--";
+    return `\`${clock}\` ${entry.message}`;
+  });
+  return truncateField(lines.join("\n"));
+}
+
+function panelEmbed({
+  targetGuild,
+  memberCount,
+  hasAdministrator,
+  lastAction,
+  systemStatus,
+  connected,
+  logs,
+  mode = "idle",
+  operation,
+  extraFields = [],
+}) {
   const connection = connected ? "Online" : "Offline";
   const permissionStatus = hasAdministrator ? "Administrator" : "Missing Administrator";
-  const last = lastAction
-    ? `${lastAction.summary} (${formatWhen(lastAction.at)})`
-    : "None";
+  const last = lastAction ? `${lastAction.summary} (${formatWhen(lastAction.at)})` : "None";
+  const color =
+    mode === "running"
+      ? COLORS.electricBlue
+      : mode === "confirming"
+        ? COLORS.warning
+        : connected
+          ? COLORS.electricBlue
+          : COLORS.danger;
 
-  return baseEmbed(connected ? COLORS.electricBlue : COLORS.danger)
+  const embed = baseEmbed(color)
     .setTitle("NEXUS | Remote Administration")
     .setDescription(`*${BRAND.tagline}*`)
     .setThumbnail(targetGuild?.iconURL({ size: 256 }) || null)
@@ -26,7 +52,6 @@ function panelEmbed({ targetGuild, memberCount, hasAdministrator, lastAction, sy
       {
         name: "Connected Server",
         value: targetGuild ? `**${targetGuild.name}**\n\`${targetGuild.id}\`` : "Unavailable",
-        inline: false,
       },
       {
         name: "System Information",
@@ -37,22 +62,18 @@ function panelEmbed({ targetGuild, memberCount, hasAdministrator, lastAction, sy
           `• Status: **${systemStatus}**`,
           `• Last action: ${last}`,
         ].join("\n"),
-      },
-      {
-        name: "Management",
-        value: "Use **Ban All** to open a protected bulk-moderation workflow.\nMembers are never banned from this button alone.",
       }
     );
-}
 
-function previewEmbed(operation) {
-  const excludedLines = formatExclusionSummary(operation.exclusionCounts);
-  return baseEmbed(COLORS.electricBlue)
-    .setTitle("NEXUS | Member Selection")
-    .setDescription(
-      "Review eligible members, then select accounts to include. Nothing is executed until you confirm."
-    )
-    .addFields(
+  if (mode === "idle") {
+    embed.addFields({
+      name: "Management",
+      value: "Use **Ban All** for a protected bulk-moderation workflow.\n**Close** removes this panel so `/panel` can be used again.",
+    });
+  }
+
+  if (mode === "selecting" && operation) {
+    embed.addFields(
       {
         name: "Examination",
         value: [
@@ -60,102 +81,30 @@ function previewEmbed(operation) {
           `• Eligible: **${operation.eligible.length}**`,
           `• Excluded: **${operation.excluded.length}**`,
           `• Selected: **${operation.selected.size}**`,
+          `• Page: **${operation.page + 1}** / **${Math.max(1, operation.totalPages)}**`,
         ].join("\n"),
       },
       {
         name: "Exclusion Reasons",
-        value: excludedLines || "None",
-      },
-      {
-        name: "Page",
-        value: `**${operation.page + 1}** / **${Math.max(1, operation.totalPages)}**`,
-        inline: true,
+        value: formatExclusionSummary(operation.exclusionCounts),
       }
     );
+  }
+
+  for (const field of extraFields) embed.addFields(field);
+
+  embed.addFields({
+    name: "Logs",
+    value: formatLogs(logs),
+  });
+
+  return embed;
 }
 
-function confirmEmbed(operation, previewLines) {
-  return baseEmbed(COLORS.warning)
-    .setTitle("NEXUS | Confirm Bulk Ban")
-    .setDescription(
-      "This action uses the Discord API against the **target server**.\nNative Discord audit logs will record each ban. This confirmation expires if unused."
-    )
-    .addFields(
-      {
-        name: "Selection",
-        value: [
-          `• Selected members: **${operation.selected.size}**`,
-          `• Eligible pool: **${operation.eligible.length}**`,
-          `• Target: **${operation.targetName}**`,
-        ].join("\n"),
-      },
-      {
-        name: "Selected Accounts",
-        value: previewLines || "None",
-      }
-    );
-}
-
-function progressEmbed(stats) {
-  return baseEmbed(COLORS.electricBlue)
-    .setTitle("NEXUS | Operation Progress")
-    .addFields({
-      name: "Status",
-      value: [
-        `**${stats.status}**`,
-        "",
-        `Completed: **${stats.completed} / ${stats.total}**`,
-        `Successful: **${stats.successful}**`,
-        `Failed: **${stats.failed}**`,
-      ].join("\n"),
-    });
-}
-
-function reportEmbed(report) {
-  const color =
-    report.failedBans > 0 && report.successfulBans === 0
-      ? COLORS.danger
-      : report.failedBans > 0
-        ? COLORS.warning
-        : COLORS.success;
-
-  return baseEmbed(color)
-    .setTitle("NEXUS | Moderation Report")
-    .addFields(
-      {
-        name: "Operation",
-        value: [
-          `**Bulk Ban**`,
-          `Status: **${report.status}**`,
-          `Target Server: **${report.targetServer}**`,
-          `Initiator: <@${report.initiatorId}>`,
-        ].join("\n"),
-      },
-      {
-        name: "Statistics",
-        value: [
-          `• Members Examined: **${report.membersExamined}**`,
-          `• Eligible Members: **${report.eligibleMembers}**`,
-          `• Selected Members: **${report.selectedMembers}**`,
-          `• Bans Attempted: **${report.bansAttempted}**`,
-          `• Successful Bans: **${report.successfulBans}**`,
-          `• Failed Bans: **${report.failedBans}**`,
-          `• Skipped Members: **${report.skippedMembers}**`,
-        ].join("\n"),
-      },
-      {
-        name: "Timing",
-        value: [
-          `Start: ${report.startTime}`,
-          `End: ${report.endTime}`,
-          `Duration: **${report.duration}**`,
-        ].join("\n"),
-      }
-    );
-}
-
-function errorEmbed(title, description) {
-  return baseEmbed(COLORS.danger).setTitle(title).setDescription(description);
+function truncateField(text, max = 1024) {
+  const value = String(text || "");
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 20)}\n…truncated`;
 }
 
 function formatWhen(iso) {
@@ -175,21 +124,11 @@ function formatExclusionSummary(counts) {
   const lines = Object.entries(counts)
     .filter(([, n]) => n > 0)
     .map(([reason, n]) => `• ${reason}: **${n}**`);
-  return lines.join("\n") || "None";
-}
-
-function truncateField(text, max = 1024) {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 20)}\n…truncated`;
+  return truncateField(lines.join("\n") || "None");
 }
 
 module.exports = {
   baseEmbed,
   panelEmbed,
-  previewEmbed,
-  confirmEmbed,
-  progressEmbed,
-  reportEmbed,
-  errorEmbed,
   truncateField,
 };

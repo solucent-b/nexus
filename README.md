@@ -11,9 +11,9 @@ Nexus does **not** hide activity from Discord. Bans appear in Discord’s native
 - Persistent control panel: **NEXUS | Remote Administration**
 - One management button: **Ban All** (Danger)
 - Protected workflow: authorize → examine members → **manual selection** → confirm → execute selected bans
-- Live progress in the control server
-- Accurate moderation reports, with a CSV attachment when the result set is large
-- Owner allowlist, control guild/channel checks, operation lock, and no auto-resume of bans after restart
+- Live progress and logs on the same panel
+- Accurate moderation reports, with a CSV attachment on the panel when the result set is large
+- Administrator / server-owner checks, one open panel at a time, operation lock, and no auto-resume of bans after restart
 
 There is no one-click “ban every member” action. Eligible members start **unselected**.
 
@@ -43,11 +43,8 @@ Copy IDs (Developer Mode → right-click → Copy ID):
 
 | Value | Where |
 | --- | --- |
-| `CONTROL_GUILD_ID` | Control server |
+| `CONTROL_GUILD_ID` | Control server (where `/panel` is allowed) |
 | `TARGET_GUILD_ID` | Optional. If omitted, Nexus auto-binds the second server it joins |
-| `CONTROL_CHANNEL_ID` | Channel for the persistent panel |
-| `LOG_CHANNEL_ID` | Channel for previews, progress, reports |
-| `OWNER_USER_ID` | Your Discord user ID (comma-separated for extra operators) |
 
 ## Local run (Windows)
 
@@ -59,7 +56,7 @@ npm install
 npm start
 ```
 
-On first ready, Nexus registers `/panel` **only** on the control server. Run `/panel` in `CONTROL_CHANNEL_ID`.
+On first ready, Nexus registers `/panel` **only** on the control server. Run `/panel` in any text channel there. Close the panel before opening another.
 
 ## Railway (production)
 
@@ -85,14 +82,12 @@ In the service → **Variables**, set:
 ```
 DISCORD_TOKEN=
 CONTROL_GUILD_ID=
-CONTROL_CHANNEL_ID=
-LOG_CHANNEL_ID=
-OWNER_USER_ID=
-DATA_DIR=/data
 
 # Optional. Leave unset to auto-bind the second server Nexus is added to.
 # TARGET_GUILD_ID=
 ```
+
+If a volume is mounted at `/data`, Nexus stores `nexus.db` there automatically. Otherwise it uses `./data`.
 
 Start command is already `node src/index.js` via `railway.json`. Nixpacks uses Node 22.
 
@@ -118,16 +113,16 @@ Redeploy after changing variables.
 
 | Command | Where | Who |
 | --- | --- | --- |
-| `/panel` | Control server, control channel | Owner allowlist |
+| `/panel` | Any text channel in the control server | Server owner or Administrators |
 
 ## Ban All workflow
 
 1. Authorized operator clicks **Ban All**.
 2. Nexus fetches target members and classifies them (owner, hierarchy, not bannable, Nexus itself).
-3. A selection UI is posted in the **log channel**. Nothing is pre-checked.
+3. Selection, confirmation, progress, and the report stay on the **same panel**. Nothing is pre-checked.
 4. Paginated select menus (25 per page). Confirm Selection → explicit Execute / Cancel (5 minute expiry).
 5. Confirmed IDs are banned through `guild.members.ban`. Rate limits are respected. Failures are recorded, never invented.
-6. Progress edits one message. The final report stays in the control server.
+6. The panel **Logs** section records each step. **Close** deletes the panel so `/panel` can be used again.
 
 Interrupted runs are marked `interrupted` in SQLite and **are not resumed**.
 
@@ -137,7 +132,7 @@ Do not test destructive bans on a populated production community.
 
 | Case | Expected |
 | --- | --- |
-| Authorized `/panel` | Panel upserted, no duplicate if message still exists |
+| Authorized `/panel` | One panel in that channel; second `/panel` is blocked until Close |
 | Unauthorized user clicks Ban All | Ephemeral access denied |
 | Command in target server | Rejected / not registered there |
 | Missing Ban Members | Permission error, no bans |
@@ -172,7 +167,7 @@ nexus/
 ## Security notes
 
 - Tokens and IDs live in environment variables only.
-- Every button and menu is re-checked against owner ID, control guild, and control/log channel.
+- Every button and menu is re-checked against control-server Administrator (or server owner) and the active panel message.
 - Concurrent Ban All operations are blocked.
 - Nexus never posts the control panel or progress in the target server.
 - Nexus never DMs banned users and never deletes Discord audit logs.

@@ -48,6 +48,33 @@ function setPanel(panel) {
   setKv("panel", JSON.stringify(panel));
 }
 
+function clearPanel() {
+  db.prepare("DELETE FROM kv WHERE k = ?").run("panel");
+}
+
+function getLogs() {
+  const raw = getKv("panel_logs");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendLog(message) {
+  const logs = getLogs();
+  logs.push({ at: new Date().toISOString(), message: String(message) });
+  const trimmed = logs.slice(-12);
+  setKv("panel_logs", JSON.stringify(trimmed));
+  return trimmed;
+}
+
+function clearLogs() {
+  db.prepare("DELETE FROM kv WHERE k = ?").run("panel_logs");
+}
+
 function getAutoTargetGuildId() {
   return getKv("auto_target_guild_id");
 }
@@ -134,6 +161,10 @@ module.exports = {
   open,
   getPanel,
   setPanel,
+  clearPanel,
+  getLogs,
+  appendLog,
+  clearLogs,
   getAutoTargetGuildId,
   setAutoTargetGuildId,
   setLastAction,

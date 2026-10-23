@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 
 const data = new SlashCommandBuilder()
   .setName("panel")
-  .setDescription("Create or refresh the Nexus administration panel")
+  .setDescription("Open the Nexus administration panel in this channel")
   .setDMPermission(false);
 
 async function execute(interaction, context) {
@@ -17,25 +17,30 @@ async function execute(interaction, context) {
     return;
   }
 
-  if (interaction.channelId !== context.config.controlChannelId) {
-    await denyEphemeral(
-      interaction,
-      "Run `/panel` in the designated control channel so the persistent panel stays in one place."
-    );
-    return;
-  }
-
   await interaction.deferReply({ ephemeral: true });
 
   try {
-    const message = await panelService.upsertPanel(context);
+    const existing = await panelService.hasOpenPanel(context);
+    if (existing.open) {
+      await interaction.editReply({
+        content: `A Nexus panel is already open in <#${existing.message.channelId}>. Close it with the **Close** button before running \`/panel\` again.`,
+      });
+      return;
+    }
+
+    if (!interaction.channel?.isTextBased()) {
+      await interaction.editReply({ content: "Run `/panel` in a text channel." });
+      return;
+    }
+
+    const message = await panelService.createPanel(context, interaction.channel, interaction.user.id);
     await interaction.editReply({
-      content: `Nexus panel is live in <#${context.config.controlChannelId}> (${message.url}).`,
+      content: `Nexus panel is live here: ${message.url}`,
     });
   } catch (error) {
-    logger.error("Failed to upsert panel", error);
+    logger.error("Failed to create panel", error);
     await interaction.editReply({
-      content: "Unable to create or refresh the Nexus panel. Check bot permissions in the control channel.",
+      content: "Unable to create the Nexus panel. Check bot permissions in this channel.",
     });
   }
 }

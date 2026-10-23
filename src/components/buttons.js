@@ -3,12 +3,18 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { CUSTOM_IDS } = require("../utils/constants");
 
-function panelButtons() {
+function panelButtons({ banAllDisabled = false } = {}) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(CUSTOM_IDS.banAll)
       .setLabel("Ban All")
       .setStyle(ButtonStyle.Danger)
+      .setDisabled(banAllDisabled),
+    new ButtonBuilder()
+      .setCustomId(CUSTOM_IDS.close)
+      .setLabel("Close")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(banAllDisabled)
   );
 }
 
@@ -63,6 +69,9 @@ function disabledRow(label = "Operation closed") {
 function parseCustomId(customId) {
   if (customId === CUSTOM_IDS.banAll) {
     return { action: "banall", opId: null };
+  }
+  if (customId === CUSTOM_IDS.close) {
+    return { action: "close", opId: null };
   }
 
   const match = /^nx:([a-f0-9]{8}):(msel|prev|next|selok|cancel|exec|abort)$/.exec(customId);

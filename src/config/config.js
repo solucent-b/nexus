@@ -32,19 +32,12 @@ function optionalSnowflake(name) {
   return value;
 }
 
+function resolveDataDir() {
+  if (fs.existsSync("/data")) return "/data";
+  return path.join(__dirname, "..", "..", "data");
+}
+
 function loadConfig() {
-  const ownerRaw = required("OWNER_USER_ID");
-  const ownerUserIds = ownerRaw
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
-
-  for (const id of ownerUserIds) {
-    if (!/^\d{17,20}$/.test(id)) {
-      throw new Error(`OWNER_USER_ID contains an invalid Discord ID: ${id}`);
-    }
-  }
-
   const token = required("DISCORD_TOKEN");
   const controlGuildId = snowflake("CONTROL_GUILD_ID");
   const targetGuildId = optionalSnowflake("TARGET_GUILD_ID");
@@ -53,18 +46,13 @@ function loadConfig() {
     throw new Error("CONTROL_GUILD_ID and TARGET_GUILD_ID must be different servers");
   }
 
-  const dataDir = process.env.DATA_DIR
-    ? path.resolve(process.env.DATA_DIR)
-    : path.join(__dirname, "..", "..", "data");
+  const dataDir = resolveDataDir();
   fs.mkdirSync(dataDir, { recursive: true });
 
   return {
     token,
     controlGuildId,
     targetGuildId,
-    controlChannelId: snowflake("CONTROL_CHANNEL_ID"),
-    logChannelId: snowflake("LOG_CHANNEL_ID"),
-    ownerUserIds,
     dataDir,
     databasePath: path.join(dataDir, "nexus.db"),
   };

@@ -2,9 +2,9 @@
 
 const { MessageFlags } = require("discord.js");
 const { authorizeInteraction, denyEphemeral } = require("../security/authorization");
-const { parseCustomId, selectionButtons, confirmationButtons, disabledRow } = require("../components/buttons");
+const { parseCustomId, panelButtons, selectionButtons, confirmationButtons } = require("../components/buttons");
 const { selectionMenu, pageSlice } = require("../components/menus");
-const { previewEmbed, confirmEmbed, progressEmbed, errorEmbed, truncateField } = require("../utils/embeds");
+const { truncateField } = require("../utils/embeds");
 const operationManager = require("./operationManager");
 const guildService = require("./guildService");
 const moderationService = require("./moderationService");
@@ -23,7 +23,20 @@ async function handleButton(interaction, context) {
     return;
   }
 
+  if (!panelService.isPanelMessage(interaction)) {
+    await interaction.reply({
+      content: "This control is not the active Nexus panel.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   operationManager.expireStale();
+
+  if (parsed.action === "close") {
+    await closeFromButton(interaction, context);
+    return;
+  }
 
   if (parsed.action === "banall") {
     await startBanAll(interaction, context);
@@ -33,7 +46,7 @@ async function handleButton(interaction, context) {
   const operation = operationManager.get(parsed.opId);
   if (!operation) {
     await interaction.reply({
-      content: "This operation is no longer active. Start a new Ban All workflow from the panel.",
+      content: "This operation is no longer active. Use Ban All on the panel to start again.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -50,6 +63,8 @@ async function handleButton(interaction, context) {
   }
 
   if (operation.status === "expired") {
+    database.appendLog("Workflow expired. No bans executed.");
+    await panelService.updatePanel(context, { message: interaction.message, mode: "idle" });
     await interaction.reply({
       content: "This confirmation or selection expired. Start again from Ban All.",
       flags: MessageFlags.Ephemeral,
@@ -58,12 +73,12 @@ async function handleButton(interaction, context) {
   }
 
   if (parsed.action === "prev" || parsed.action === "next") {
-    await turnPage(interaction, operation, parsed.action);
+    await turnPage(interaction, context, operation, parsed.action);
     return;
   }
 
   if (parsed.action === "selok") {
-    await askConfirmation(interaction, operation);
+    await askConfirmation(interaction, context, operation);
     return;
   }
 
@@ -82,6 +97,14 @@ async function handleSelect(interaction, context) {
     return;
   }
 
+  if (!panelService.isPanelMessage(interaction)) {
+    await interaction.reply({
+      content: "This control is not the active Nexus panel.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   const operation = operationManager.get(parsed.opId);
   if (!operation || operation.userId !== interaction.user.id || operation.status !== "selecting") {
     await interaction.reply({
@@ -97,10 +120,27 @@ async function handleSelect(interaction, context) {
     if (pageIds.has(id)) operation.selected.add(id);
   }
 
-  await interaction.update({
-    embeds: [previewEmbed(operation)],
-    components: [selectionMenu(operation), selectionButtons(operation)],
-  });
+  database.appendLog(`Selection updated: ${operation.selected.size} member(s)`);
+  await interaction.update(
+    await panelService.buildPayload(context, {
+      mode: "selecting",
+      operation,
+      components: [selectionMenu(operation), selectionButtons(operation)],
+    })
+  );
+}
+
+async function closeFromButton(interaction, context) {
+  if (operationManager.isLocked()) {
+    await interaction.reply({
+      content: "Finish or cancel the current operation before closing the panel.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+  await panelService.closePanel(context, interaction.user.id);
 }
 
 async function startBanAll(interaction, context) {
@@ -113,27 +153,28 @@ async function startBanAll(interaction, context) {
     return;
   }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferUpdate();
+  database.appendLog(`Ban All started by <@${interaction.user.id}>`);
+  await panelService.updatePanel(context, {
+    message: interaction.message,
+    mode: "running",
+    extraFields: [{ name: "Operation", value: "Examining target members…" }],
+  });
+
+  const failIdle = async (line) => {
+    operationManager.releaseLock(pendingLockId);
+    database.appendLog(line);
+    await panelService.updatePanel(context, { message: interaction.message, mode: "idle" });
+  };
 
   const targetGuild = await guildService.getTargetGuild(context.client, context.config);
   if (!targetGuild) {
-    operationManager.releaseLock(pendingLockId);
-    await interaction.editReply({
-      embeds: [errorEmbed("NEXUS | Connection Error", "The target server is unreachable.")],
-    });
+    await failIdle("Target server is unreachable.");
     return;
   }
 
   if (!guildService.botCanBan(targetGuild)) {
-    operationManager.releaseLock(pendingLockId);
-    await interaction.editReply({
-      embeds: [
-        errorEmbed(
-          "NEXUS | Permission Error",
-          "Nexus cannot ban members on the target server. Grant Ban Members (and typically Administrator) and place the Nexus role above accounts you intend to moderate. Discord will still protect the server owner and higher roles."
-        ),
-      ],
-    });
+    await failIdle("Missing Ban Members / Administrator on the target server.");
     return;
   }
 
@@ -142,47 +183,17 @@ async function startBanAll(interaction, context) {
     members = await guildService.fetchAllMembers(targetGuild);
   } catch (error) {
     logger.error("Member fetch failed", error);
-    operationManager.releaseLock(pendingLockId);
-    await interaction.editReply({
-      embeds: [errorEmbed("NEXUS | Examination Error", "Unable to retrieve the target member list.")],
-    });
+    await failIdle("Unable to retrieve the target member list.");
     return;
   }
 
   const classification = guildService.classifyMembers(targetGuild, members);
-
-  let channel;
-  try {
-    channel = await context.client.channels.fetch(context.config.logChannelId);
-    if (!channel || !channel.isTextBased()) throw new Error("Log channel is not a text channel");
-  } catch (error) {
-    logger.error("Log channel fetch failed", error);
-    operationManager.releaseLock(pendingLockId);
-    await interaction.editReply({
-      embeds: [errorEmbed("NEXUS | Channel Error", "Unable to post in the configured log channel.")],
-    });
-    return;
-  }
+  database.appendLog(
+    `Examined ${classification.examined}: ${classification.eligible.length} eligible, ${classification.excluded.length} excluded`
+  );
 
   if (!classification.eligible.length) {
-    operationManager.releaseLock(pendingLockId);
-    await channel.send({
-      embeds: [
-        previewEmbed({
-          examined: classification.examined,
-          eligible: [],
-          excluded: classification.excluded,
-          exclusionCounts: classification.exclusionCounts,
-          selected: new Set(),
-          page: 0,
-          totalPages: 1,
-        }),
-      ],
-      components: [disabledRow("No eligible members")],
-    });
-    await interaction.editReply({
-      content: `Examination complete. No eligible members were found. Details posted in <#${channel.id}>.`,
-    });
+    await failIdle("No eligible members. Server owner and protected roles were skipped.");
     return;
   }
 
@@ -192,30 +203,19 @@ async function startBanAll(interaction, context) {
     targetGuild.name
   );
   operationManager.rebindLock(pendingLockId, operation.id);
+  operation.previewMessageId = interaction.message.id;
+  operationManager.setStatus(operation, "selecting");
+  database.appendLog("Member selection open. Nothing is pre-selected.");
 
-  try {
-    const preview = await channel.send({
-      embeds: [previewEmbed(operation)],
-      components: [selectionMenu(operation), selectionButtons(operation)],
-    });
-    operation.previewMessageId = preview.id;
-    operationManager.setStatus(operation, "selecting");
-  } catch (error) {
-    logger.error("Selection preview send failed", error);
-    operationManager.setStatus(operation, "failed");
-    operationManager.releaseLock(operation.id);
-    await interaction.editReply({
-      embeds: [errorEmbed("NEXUS | Channel Error", "Unable to post the selection preview in the log channel.")],
-    });
-    return;
-  }
-
-  await interaction.editReply({
-    content: `Member examination complete. Continue in <#${channel.id}>. Eligible members are **not** pre-selected.`,
+  await panelService.updatePanel(context, {
+    message: interaction.message,
+    mode: "selecting",
+    operation,
+    components: [selectionMenu(operation), selectionButtons(operation)],
   });
 }
 
-async function turnPage(interaction, operation, direction) {
+async function turnPage(interaction, context, operation, direction) {
   if (operation.status !== "selecting") {
     await interaction.reply({ content: "Paging is only available during selection.", flags: MessageFlags.Ephemeral });
     return;
@@ -223,14 +223,18 @@ async function turnPage(interaction, operation, direction) {
 
   if (direction === "prev" && operation.page > 0) operation.page -= 1;
   if (direction === "next" && operation.page < operation.totalPages - 1) operation.page += 1;
+  database.appendLog(`Selection page ${operation.page + 1}/${operation.totalPages}`);
 
-  await interaction.update({
-    embeds: [previewEmbed(operation)],
-    components: [selectionMenu(operation), selectionButtons(operation)],
-  });
+  await interaction.update(
+    await panelService.buildPayload(context, {
+      mode: "selecting",
+      operation,
+      components: [selectionMenu(operation), selectionButtons(operation)],
+    })
+  );
 }
 
-async function askConfirmation(interaction, operation) {
+async function askConfirmation(interaction, context, operation) {
   if (operation.status !== "selecting") {
     await interaction.reply({ content: "Selection is no longer open.", flags: MessageFlags.Ephemeral });
     return;
@@ -248,15 +252,27 @@ async function askConfirmation(interaction, operation) {
   const selected = operation.eligible.filter((member) => operation.selected.has(member.id));
   const previewLines = truncateField(
     selected
-      .slice(0, 20)
+      .slice(0, 12)
       .map((member) => `• ${member.tag} | ${member.id}`)
-      .join("\n") + (selected.length > 20 ? `\n…and ${selected.length - 20} more` : "")
+      .join("\n") + (selected.length > 12 ? `\n…and ${selected.length - 12} more` : "")
   );
 
-  await interaction.update({
-    embeds: [confirmEmbed(operation, previewLines)],
-    components: [confirmationButtons(operation)],
-  });
+  database.appendLog(`Confirmation required for ${operation.selected.size} member(s)`);
+
+  await interaction.update(
+    await panelService.buildPayload(context, {
+      mode: "confirming",
+      operation,
+      extraFields: [
+        {
+          name: "Confirm Bulk Ban",
+          value: `Selected **${operation.selected.size}** of **${operation.eligible.length}** eligible.\nNative Discord audit logs will record each ban.`,
+        },
+        { name: "Selected Accounts", value: previewLines || "None" },
+      ],
+      components: [confirmationButtons(operation)],
+    })
+  );
 }
 
 async function cancelOperation(interaction, context, operation) {
@@ -271,13 +287,9 @@ async function cancelOperation(interaction, context, operation) {
   operationManager.setStatus(operation, "cancelled");
   operationManager.releaseLock(operation.id);
   database.setLastAction({ summary: "Bulk ban cancelled" });
+  database.appendLog("Operation cancelled. No bans executed.");
 
-  await interaction.update({
-    embeds: [errorEmbed("NEXUS | Cancelled", "No bans were executed.")],
-    components: [disabledRow("Cancelled")],
-  });
-
-  await panelService.refreshPanel(context);
+  await interaction.update(await panelService.buildPayload(context, { mode: "idle" }));
 }
 
 async function runExecution(interaction, context, operation) {
@@ -292,49 +304,48 @@ async function runExecution(interaction, context, operation) {
   if (operation.confirmExpiresAt && Date.now() > operation.confirmExpiresAt) {
     operationManager.setStatus(operation, "expired");
     operationManager.releaseLock(operation.id);
-    await interaction.update({
-      embeds: [errorEmbed("NEXUS | Expired", "Confirmation expired. No bans were executed.")],
-      components: [disabledRow("Expired")],
-    });
+    database.appendLog("Confirmation expired. No bans executed.");
+    await interaction.update(await panelService.buildPayload(context, { mode: "idle" }));
     return;
   }
 
   operationManager.setStatus(operation, "running");
-  await interaction.update({
-    embeds: [
-      progressEmbed({
-        status: "Processing",
-        completed: 0,
-        total: operation.selected.size,
-        successful: 0,
-        failed: 0,
-      }),
-    ],
-    components: [disabledRow("Running")],
-  });
+  database.appendLog(`Executing ${operation.selected.size} ban(s)`);
+  await interaction.update(
+    await panelService.buildPayload(context, {
+      mode: "running",
+      extraFields: [
+        {
+          name: "Operation Progress",
+          value: `Processing **0 / ${operation.selected.size}**`,
+        },
+      ],
+    })
+  );
 
-  const progressMessage = interaction.message;
+  const panelMessage = interaction.message;
   let results;
 
   try {
     results = await moderationService.executeBans(context, operation, async (stats) => {
-      try {
-        await progressMessage.edit({
-          embeds: [progressEmbed(stats)],
-          components: [disabledRow("Running")],
-        });
-      } catch (error) {
-        logger.warn("Progress edit skipped", error);
-      }
+      database.appendLog(`Progress ${stats.completed}/${stats.total} • ok ${stats.successful} • fail ${stats.failed}`);
+      await panelService.updatePanel(context, {
+        message: panelMessage,
+        mode: "running",
+        extraFields: [
+          {
+            name: "Operation Progress",
+            value: `**${stats.status}**\nCompleted: **${stats.completed} / ${stats.total}**\nSuccessful: **${stats.successful}**\nFailed: **${stats.failed}**`,
+          },
+        ],
+      });
     });
   } catch (error) {
     logger.error("Bulk ban execution failed", error);
     operationManager.setStatus(operation, "failed");
     operationManager.releaseLock(operation.id);
-    await progressMessage.edit({
-      embeds: [errorEmbed("NEXUS | Execution Error", "The operation stopped before completion. No unfinished work will auto-resume.")],
-      components: [disabledRow("Failed")],
-    });
+    database.appendLog("Execution stopped before completion. Will not auto-resume.");
+    await panelService.updatePanel(context, { message: panelMessage, mode: "idle" });
     return;
   }
 
@@ -350,14 +361,27 @@ async function runExecution(interaction, context, operation) {
   database.setLastAction({
     summary: `Bulk ban ${report.successfulBans} ok / ${report.failedBans} failed`,
   });
+  database.appendLog(
+    `Report: ${report.status} • examined ${report.membersExamined} • selected ${report.selectedMembers} • ok ${report.successfulBans} • fail ${report.failedBans} • ${report.duration}`
+  );
 
-  await progressMessage.edit({
-    embeds: payload.embeds,
+  await panelService.updatePanel(context, {
+    message: panelMessage,
+    mode: "idle",
+    extraFields: [
+      {
+        name: "Last Report",
+        value: truncateField(
+          [
+            `**${report.status}** on **${report.targetServer}**`,
+            `Selected ${report.selectedMembers} • ok ${report.successfulBans} • fail ${report.failedBans}`,
+            `Duration ${report.duration}`,
+          ].join("\n")
+        ),
+      },
+    ],
     files: payload.files,
-    components: [disabledRow("Completed")],
   });
-
-  await panelService.refreshPanel(context);
 }
 
 module.exports = { handleButton, handleSelect };
