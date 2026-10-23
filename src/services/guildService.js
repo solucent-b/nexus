@@ -2,10 +2,14 @@
 
 const { PermissionFlagsBits } = require("discord.js");
 const logger = require("../utils/logger");
+const targetGuild = require("./targetGuild");
 
 async function getTargetGuild(client, config) {
+  const targetGuildId = targetGuild.getTargetGuildId(client, config);
+  if (!targetGuildId) return null;
+
   try {
-    return await client.guilds.fetch(config.targetGuildId);
+    return await client.guilds.fetch(targetGuildId);
   } catch (error) {
     logger.error("Unable to fetch target guild", error);
     return null;

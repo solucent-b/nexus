@@ -48,6 +48,18 @@ function setPanel(panel) {
   setKv("panel", JSON.stringify(panel));
 }
 
+function getAutoTargetGuildId() {
+  return getKv("auto_target_guild_id");
+}
+
+function setAutoTargetGuildId(guildId) {
+  if (!guildId) {
+    db.prepare("DELETE FROM kv WHERE k = ?").run("auto_target_guild_id");
+    return;
+  }
+  setKv("auto_target_guild_id", guildId);
+}
+
 function setLastAction(summary) {
   setKv("last_action", JSON.stringify({ ...summary, at: new Date().toISOString() }));
 }
@@ -122,6 +134,8 @@ module.exports = {
   open,
   getPanel,
   setPanel,
+  getAutoTargetGuildId,
+  setAutoTargetGuildId,
   setLastAction,
   getLastAction,
   saveOperation,

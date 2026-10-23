@@ -14,6 +14,7 @@ const database = require("./storage/database");
 const logger = require("./utils/logger");
 const panelCommand = require("./commands/panel");
 const panelService = require("./services/panelService");
+const targetGuild = require("./services/targetGuild");
 const operationManager = require("./services/operationManager");
 const interactionRouter = require("./services/interactionRouter");
 const { startHealthServer } = require("./utils/healthServer");
@@ -62,7 +63,21 @@ client.once(Events.ClientReady, async (readyClient) => {
     logger.error("Slash command registration failed", error);
   }
 
+  targetGuild.syncFromGuilds(readyClient, config);
   await panelService.refreshPanel(context);
+});
+
+client.on(Events.GuildCreate, async (guild) => {
+  const bound = targetGuild.onGuildJoin(client, config, guild);
+  if (bound) {
+    logger.info(`Joined ${guild.name} (${guild.id}) and set it as the target server`);
+    await panelService.refreshPanel(context);
+  }
+});
+
+client.on(Events.GuildDelete, async (guild) => {
+  const changed = targetGuild.onGuildLeave(client, config, guild.id);
+  if (changed) await panelService.refreshPanel(context);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

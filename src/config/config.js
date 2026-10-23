@@ -22,6 +22,16 @@ function snowflake(name) {
   return value;
 }
 
+function optionalSnowflake(name) {
+  const raw = process.env[name];
+  if (!raw || !String(raw).trim()) return null;
+  const value = String(raw).trim();
+  if (!/^\d{17,20}$/.test(value)) {
+    throw new Error(`${name} must be a Discord snowflake ID`);
+  }
+  return value;
+}
+
 function loadConfig() {
   const ownerRaw = required("OWNER_USER_ID");
   const ownerUserIds = ownerRaw
@@ -37,9 +47,9 @@ function loadConfig() {
 
   const token = required("DISCORD_TOKEN");
   const controlGuildId = snowflake("CONTROL_GUILD_ID");
-  const targetGuildId = snowflake("TARGET_GUILD_ID");
+  const targetGuildId = optionalSnowflake("TARGET_GUILD_ID");
 
-  if (controlGuildId === targetGuildId) {
+  if (targetGuildId && controlGuildId === targetGuildId) {
     throw new Error("CONTROL_GUILD_ID and TARGET_GUILD_ID must be different servers");
   }
 

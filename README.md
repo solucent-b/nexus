@@ -44,7 +44,7 @@ Copy IDs (Developer Mode → right-click → Copy ID):
 | Value | Where |
 | --- | --- |
 | `CONTROL_GUILD_ID` | Control server |
-| `TARGET_GUILD_ID` | Target server |
+| `TARGET_GUILD_ID` | Optional. If omitted, Nexus auto-binds the second server it joins |
 | `CONTROL_CHANNEL_ID` | Channel for the persistent panel |
 | `LOG_CHANNEL_ID` | Channel for previews, progress, reports |
 | `OWNER_USER_ID` | Your Discord user ID (comma-separated for extra operators) |
@@ -85,11 +85,13 @@ In the service → **Variables**, set:
 ```
 DISCORD_TOKEN=
 CONTROL_GUILD_ID=
-TARGET_GUILD_ID=
 CONTROL_CHANNEL_ID=
 LOG_CHANNEL_ID=
 OWNER_USER_ID=
 DATA_DIR=/data
+
+# Optional. Leave unset to auto-bind the second server Nexus is added to.
+# TARGET_GUILD_ID=
 ```
 
 Start command is already `node src/index.js` via `railway.json`. Nixpacks uses Node 22.
