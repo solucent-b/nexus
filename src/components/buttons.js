@@ -3,19 +3,43 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { CUSTOM_IDS } = require("../utils/constants");
 
-function panelButtons({ banAllDisabled = false } = {}) {
-  return new ActionRowBuilder().addComponents(
+function botInviteUrl(client) {
+  const clientId = client.application?.id || client.user?.id;
+  const params = new URLSearchParams({
+    client_id: clientId,
+    permissions: "8",
+    scope: "bot applications.commands",
+  });
+  return `https://discord.com/oauth2/authorize?${params.toString()}`;
+}
+
+function panelButtons({ banAllDisabled = false, inviteUrl } = {}) {
+  const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(CUSTOM_IDS.banAll)
       .setLabel("Ban All")
       .setStyle(ButtonStyle.Danger)
-      .setDisabled(banAllDisabled),
+      .setDisabled(banAllDisabled)
+  );
+
+  if (inviteUrl) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setLabel("Invite")
+        .setStyle(ButtonStyle.Link)
+        .setURL(inviteUrl)
+    );
+  }
+
+  row.addComponents(
     new ButtonBuilder()
       .setCustomId(CUSTOM_IDS.close)
       .setLabel("Close")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(banAllDisabled)
   );
+
+  return row;
 }
 
 function selectionButtons(operation) {
@@ -80,6 +104,7 @@ function parseCustomId(customId) {
 }
 
 module.exports = {
+  botInviteUrl,
   panelButtons,
   selectionButtons,
   confirmationButtons,

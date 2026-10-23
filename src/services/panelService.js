@@ -1,7 +1,7 @@
 "use strict";
 
 const { panelEmbed } = require("../utils/embeds");
-const { panelButtons } = require("../components/buttons");
+const { panelButtons, botInviteUrl } = require("../components/buttons");
 const database = require("../storage/database");
 const guildService = require("./guildService");
 const logger = require("../utils/logger");
@@ -24,7 +24,12 @@ async function buildPayload(context, { mode = "idle", operation = null, extraFie
         extraFields,
       }),
     ],
-    components: components || [panelButtons({ banAllDisabled: mode === "running" })],
+    components: components || [
+      panelButtons({
+        banAllDisabled: mode === "running",
+        inviteUrl: botInviteUrl(context.client),
+      }),
+    ],
   };
   if (files?.length) payload.files = files;
   return payload;

@@ -53,7 +53,7 @@ const healthServer = startHealthServer();
 client.once(Events.ClientReady, async (readyClient) => {
   logger.info(`Nexus online as ${readyClient.user.tag}`);
   readyClient.user.setPresence({
-    activities: [{ name: "One Panel. Total Control." }],
+    activities: [],
     status: "online",
   });
 
